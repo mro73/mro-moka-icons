@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 #
+# This script skips apps folder and creates shorter folder names, making it consistent with other Mint icon themes. 
+# It also makes Mint-L-mro folder instead of mro-moka-icons. I changed it for making my own theme easier.
+#
 # Legal Stuff:
 #
 # This file is part of the Moka Icon Theme and is free software; you can 
@@ -25,7 +28,7 @@ import argparse
 
 INKSCAPE = '/usr/bin/inkscape'
 OPTIPNG = '/usr/bin/optipng'
-MAINDIR = '../../mro-moka-icons'
+MAINDIR = '../../Mint-L-Mro'
 SOURCES = ('A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','web','X','Y','Z','#')
 
 # the resolution that non-hi-dpi icons are rendered at
@@ -151,11 +154,11 @@ def main(args, SRC):
 						id = rect['id']
 						dpi = DPI_1_TO_1 * dpi_factor
 
-						size_str = "%sx%s" % (width, height)
+						size_str = "%s" % (width)
 						if dpi_factor != 1:
 							size_str += "@%sx" % dpi_factor
 
-						dir = os.path.join(MAINDIR, size_str, self.context)
+						dir = os.path.join(MAINDIR, size_str)
 						outfile = os.path.join(dir, self.icon_name+'.png')
 						if not os.path.exists(dir):
 							os.makedirs(dir)
