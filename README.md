@@ -14,4 +14,9 @@ The script and icons originate from the Moka icon theme:
 
 - Link: https://github.com/moka-project/moka-icon-theme
 - Author: Sam Hewitt hewittsamuel@gmail.com
-- License: Creative Commons Attribution-ShareAlike 4.0 (https://creativecommons.org/licenses/by-sa/4.0) & GPLv3
+
+# License
+
+- Icons: Creative Commons Attribution-ShareAlike 4.0 (https://creativecommons.org/licenses/by-sa/4.0)
+- Build Script: GNU LGPL v3 (modified version of the Moka render script)
+- Project: GNU GPL v3.

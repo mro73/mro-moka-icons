@@ -1,0 +1,14 @@
+# Icon aliases for the "apps" context.
+#
+# Format:  <existing-icon> <new-name>
+#
+# <existing-icon> is either one of our own icons, or an icon from the parent
+# theme (Mint-L). The script checks our theme first, then the parent.
+#
+# Examples (remove the # to use them):
+#
+# Our own icon under a second name:
+# TiddlyDesktop.png              org.tiddlywiki.TiddlyDesktop.png
+#
+# A Mint-L icon for an app that has no icon of its own:
+# utilities-terminal.png         some-terminal-app.png

@@ -1,14 +1,32 @@
 #!/usr/bin/python3
 #
-# Legal Stuff:
+# Original script by Sam Hewitt (Moka Icon Theme)
+# Modified in 2026 by mro73
 #
-# This file is part of the Moka Icon Theme and is free software; you can 
+# Renders the source SVGs (one icon per SVG, sizes marked by "Baseplate" rects)
+# into PNGs, in one of two folder layouts:
+#
+#   --layout moka  ->  <out>/16x16/apps/name.png, <out>/16x16@2x/apps/name.png ...
+#                      (default out: <repo>/mro-moka-icons)
+#   --layout mint  ->  <out>/apps/16/name.png,  <out>/apps/16@2x/name.png ...
+#                      (default out: ../Mint-L-mro, next to this repo)
+#
+# Examples (can be run from any directory):
+#   ./render-bitmaps.py                         render everything, Moka layout
+#   ./render-bitmaps.py -l mint                 render everything into Mint-L-mro
+#   ./render-bitmaps.py -l mint steam           re-render only S/steam.svg
+#   ./render-bitmaps.py -l mint -o /tmp/test    render somewhere else
+#   ./render-bitmaps.py -f                      re-render even if PNGs are up to date
+#
+# --- Original Legal Stuff ---
+#
+# This file is part of the Moka Icon Theme and is free software; you can
 # redistribute it and/or modify it under  the terms of the GNU Lesser General
 # Public License as published by the Free Software Foundation; version 3.
 #
-# This file is part of the Moka Icon Theme and is distributed in the hope that 
-# it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty 
-# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser 
+# This file is part of the Moka Icon Theme and is distributed in the hope that
+# it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser
 # General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License along with
@@ -17,199 +35,173 @@
 #
 # Thanks to the GNOME icon developers for the original version of this script
 
+import argparse
 import os
+import shutil
+import subprocess
 import sys
 import xml.sax
-import subprocess
-import argparse
 
-INKSCAPE = '/usr/bin/inkscape'
-OPTIPNG = '/usr/bin/optipng'
-MAINDIR = '../../mro-moka-icons'
-SOURCES = ('A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','web','X','Y','Z','#')
+INKSCAPE = shutil.which('inkscape') or '/usr/bin/inkscape'
+OPTIPNG = shutil.which('optipng')
 
-# the resolution that non-hi-dpi icons are rendered at
-DPI_1_TO_1 = 96
-# DPI multipliers to render at
-DPIS = [1, 2]
+# Paths are based on where this script lives, not where you run it from.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))     # .../src/bitmaps
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..'))
 
-inkscape_process = None
+DEFAULT_OUT = {
+    'moka': os.path.join(REPO_ROOT, 'mro-moka-icons'),
+    'mint': os.path.join(REPO_ROOT, '..', 'Mint-L-mro'),
+}
 
-def main(args, SRC):
+SOURCES = ('#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+           'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'web')
 
-	def optimize_png(png_file):
-		if os.path.exists(OPTIPNG):
-			process = subprocess.Popen([OPTIPNG, '-quiet', '-o7', png_file])
-			process.wait()
-
-	def wait_for_prompt(process, command=None):
-		if command is not None:
-			process.stdin.write((command+'\n').encode('utf-8'))
-
-		# This is kinda ugly ...
-		# Wait for just a '>', or '\n>' if some other char appearead first
-		output = process.stdout.read(1)
-		if output == b'>':
-			return
-
-		output += process.stdout.read(1)
-		while output != b'\n>':
-			output += process.stdout.read(1)
-			output = output[1:]
-
-	def start_inkscape():
-		process = subprocess.Popen([INKSCAPE, '--shell'], bufsize=0, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-		wait_for_prompt(process)
-		return process
-
-	def inkscape_render_rect(icon_file, rect, dpi, output_file):
-		cmd = [
-				INKSCAPE,
-				icon_file,
-			   f'--export-id={rect}',
-			   f'--export-dpi={dpi}',
-			   f'--export-filename={output_file}']
-		subprocess.run(cmd, check=True)
-
-	class ContentHandler(xml.sax.ContentHandler):
-		ROOT = 0
-		SVG = 1
-		LAYER = 2
-		OTHER = 3
-		TEXT = 4
-		def __init__(self, path, force=False, filter=None):
-			self.stack = [self.ROOT]
-			self.inside = [self.ROOT]
-			self.path = path
-			self.rects = []
-			self.state = self.ROOT
-			self.chars = ""
-			self.force = force
-			self.filter = filter
-
-		def endDocument(self):
-			pass
-
-		def startElement(self, name, attrs):
-			if self.inside[-1] == self.ROOT:
-				if name == "svg":
-					self.stack.append(self.SVG)
-					self.inside.append(self.SVG)
-					return
-			elif self.inside[-1] == self.SVG:
-				if (name == "g" and ('inkscape:groupmode' in attrs) and ('inkscape:label' in attrs)
-				   and attrs['inkscape:groupmode'] == 'layer' and attrs['inkscape:label'].startswith('Baseplate')):
-					self.stack.append(self.LAYER)
-					self.inside.append(self.LAYER)
-					self.context = None
-					self.icon_name = None
-					self.rects = []
-					return
-			elif self.inside[-1] == self.LAYER:
-				if name == "text" and ('inkscape:label' in attrs) and attrs['inkscape:label'] == 'context':
-					self.stack.append(self.TEXT)
-					self.inside.append(self.TEXT)
-					self.text='context'
-					self.chars = ""
-					return
-				elif name == "text" and ('inkscape:label' in attrs) and attrs['inkscape:label'] == 'icon-name':
-					self.stack.append(self.TEXT)
-					self.inside.append(self.TEXT)
-					self.text='icon-name'
-					self.chars = ""
-					return
-				elif name == "rect":
-					self.rects.append(attrs)
-
-			self.stack.append(self.OTHER)
+DPI_1_TO_1 = 96     # resolution of normal (non-HiDPI) icons
+DPIS = [1, 2]       # render at 1x and 2x
 
 
-		def endElement(self, name):
-			stacked = self.stack.pop()
-			if self.inside[-1] == stacked:
-				self.inside.pop()
-
-			if stacked == self.TEXT and self.text is not None:
-				assert self.text in ['context', 'icon-name']
-				if self.text == 'context':
-					self.context = self.chars
-				elif self.text == 'icon-name':
-					self.icon_name = self.chars
-				self.text = None
-			elif stacked == self.LAYER:
-				assert self.icon_name
-				assert self.context
-
-				if self.filter is not None and not self.icon_name in self.filter:
-					return
-
-				print (self.context, self.icon_name)
-				for rect in self.rects:
-					for dpi_factor in DPIS:
-						width = rect['width']
-						height = rect['height']
-						id = rect['id']
-						dpi = DPI_1_TO_1 * dpi_factor
-
-						size_str = "%sx%s" % (width, height)
-						if dpi_factor != 1:
-							size_str += "@%sx" % dpi_factor
-
-						dir = os.path.join(MAINDIR, size_str, self.context)
-						outfile = os.path.join(dir, self.icon_name+'.png')
-						if not os.path.exists(dir):
-							os.makedirs(dir)
-						# Do a time based check!
-						if self.force or not os.path.exists(outfile):
-							inkscape_render_rect(self.path, id, dpi, outfile)
-							sys.stdout.write('.')
-						else:
-							stat_in = os.stat(self.path)
-							stat_out = os.stat(outfile)
-							if stat_in.st_mtime > stat_out.st_mtime:
-								inkscape_render_rect(self.path, id, dpi, outfile)
-								sys.stdout.write('.')
-							else:
-								sys.stdout.write('-')
-						sys.stdout.flush()
-				sys.stdout.write('\n')
-				sys.stdout.flush()
-
-		def characters(self, chars):
-			self.chars += chars.strip()
+def output_dir(layout, out, context, width, height, scale):
+    """Folder a PNG goes into, depending on the chosen layout."""
+    suffix = f'@{scale}x' if scale != 1 else ''
+    if layout == 'moka':
+        return os.path.join(out, f'{width}x{height}{suffix}', context)
+    return os.path.join(out, context, f'{width}{suffix}')
 
 
-	if not args.svg:
-		if not os.path.exists(MAINDIR):
-			os.mkdir(MAINDIR)
-		print ('')
-		print ('Rendering from SVGs in', SRC)
-		print ('')
-		for file in os.listdir(SRC):
-			if file[-4:] == '.svg':
-				file = os.path.join(SRC, file)
-				handler = ContentHandler(file)
-				xml.sax.parse(open(file), handler)
-		print ('')
-	else:
-		file = os.path.join(SRC, args.svg + '.svg')
+def needs_render(svg, png, force):
+    return force or not os.path.exists(png) or os.path.getmtime(svg) > os.path.getmtime(png)
 
-		if os.path.exists(os.path.join(file)):
-			handler = ContentHandler(file, True, filter=args.filter)
-			xml.sax.parse(open(file), handler)
-		else:
-			# icon not in this directory, try the next one
-			pass
 
-parser = argparse.ArgumentParser(description='Render icons from SVG to PNG')
+def render(svg, rect_id, dpi, png):
+    subprocess.run([INKSCAPE, svg,
+                    f'--export-id={rect_id}',
+                    f'--export-dpi={dpi}',
+                    f'--export-filename={png}'], check=True)
+    if OPTIPNG:
+        subprocess.run([OPTIPNG, '-quiet', '-o7', png], check=True)
 
-parser.add_argument('svg', type=str, nargs='?', metavar='SVG',
-					help="Optional SVG names (without extensions) to render. If not given, render all icons")
-parser.add_argument('filter', type=str, nargs='?', metavar='FILTER',
-					help="Optional filter for the SVG file")
 
-args = parser.parse_args()
+class IconCollector(xml.sax.ContentHandler):
+    """Reads one SVG and collects (context, icon name, size rects) per Baseplate layer."""
+    ROOT, SVG, LAYER, OTHER, TEXT = range(5)
 
-for source in SOURCES:
-	SRC = os.path.join('.', source)
-	main(args, SRC)
+    def __init__(self):
+        super().__init__()
+        self.stack = [self.ROOT]
+        self.inside = [self.ROOT]
+        self.icons = []
+        self.chars = ''
+        self.text = None
+
+    def _push(self, state):
+        self.stack.append(state)
+        self.inside.append(state)
+
+    def startElement(self, name, attrs):
+        top = self.inside[-1]
+        if top == self.ROOT and name == 'svg':
+            self._push(self.SVG)
+            return
+        if (top == self.SVG and name == 'g'
+                and attrs.get('inkscape:groupmode') == 'layer'
+                and attrs.get('inkscape:label', '').startswith('Baseplate')):
+            self._push(self.LAYER)
+            self.context = None
+            self.icon_name = None
+            self.rects = []
+            return
+        if top == self.LAYER:
+            label = attrs.get('inkscape:label')
+            if name == 'text' and label in ('context', 'icon-name'):
+                self._push(self.TEXT)
+                self.text = label
+                self.chars = ''
+                return
+            if name == 'rect':
+                self.rects.append({'id': attrs['id'],
+                                   'width': attrs['width'],
+                                   'height': attrs['height']})
+        self.stack.append(self.OTHER)
+
+    def endElement(self, name):
+        stacked = self.stack.pop()
+        if self.inside[-1] == stacked:
+            self.inside.pop()
+        if stacked == self.TEXT and self.text:
+            if self.text == 'context':
+                self.context = self.chars
+            else:
+                self.icon_name = self.chars
+            self.text = None
+        elif stacked == self.LAYER:
+            if not (self.context and self.icon_name):
+                raise ValueError('Baseplate layer is missing its "context" or "icon-name" text')
+            self.icons.append((self.context, self.icon_name, self.rects))
+
+    def characters(self, chars):
+        self.chars += chars.strip()
+
+
+def process_svg(svg, args, out):
+    collector = IconCollector()
+    with open(svg) as f:
+        xml.sax.parse(f, collector)
+
+    force = args.force or bool(args.svg)     # naming one SVG always re-renders it
+    for context, icon_name, rects in collector.icons:
+        if args.filter is not None and icon_name not in args.filter:
+            continue
+        print(context, icon_name)
+        for rect in rects:
+            width = int(float(rect['width']))
+            height = int(float(rect['height']))
+            for scale in DPIS:
+                folder = output_dir(args.layout, out, context, width, height, scale)
+                os.makedirs(folder, exist_ok=True)
+                png = os.path.join(folder, icon_name + '.png')
+                if needs_render(svg, png, force):
+                    render(svg, rect['id'], DPI_1_TO_1 * scale, png)
+                    sys.stdout.write('.')
+                else:
+                    sys.stdout.write('-')
+                sys.stdout.flush()
+        print()
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Render icons from SVG to PNG')
+    parser.add_argument('svg', nargs='?', metavar='SVG',
+                        help='SVG name (without .svg) to render; if omitted, render all icons')
+    parser.add_argument('filter', nargs='?', metavar='FILTER',
+                        help='only render icon names matching this, inside the given SVG')
+    parser.add_argument('-l', '--layout', choices=['moka', 'mint'], default='moka',
+                        help='folder layout of the output (default: moka)')
+    parser.add_argument('-o', '--out',
+                        help='output folder (default depends on --layout)')
+    parser.add_argument('-f', '--force', action='store_true',
+                        help='re-render even if PNGs are newer than their SVGs')
+    args = parser.parse_args()
+
+    if not os.path.exists(INKSCAPE):
+        sys.exit('Inkscape not found.')
+    if not OPTIPNG:
+        print('Note: optipng not found, PNGs will not be optimized.')
+
+    out = os.path.abspath(args.out or DEFAULT_OUT[args.layout])
+    print(f'Layout: {args.layout}   Output: {out}\n')
+
+    for source in SOURCES:
+        src_dir = os.path.join(SCRIPT_DIR, source)
+        if not os.path.isdir(src_dir):
+            continue
+        if args.svg:
+            names = [args.svg + '.svg'] if os.path.exists(os.path.join(src_dir, args.svg + '.svg')) else []
+        else:
+            names = sorted(n for n in os.listdir(src_dir) if n.endswith('.svg'))
+        for name in names:
+            process_svg(os.path.join(src_dir, name), args, out)
+
+
+if __name__ == '__main__':
+    main()
